@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flujo de Integración VoIP - Odoo</title>
+    <title>Flujo Taller - Odoo Timesheets</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
@@ -12,7 +12,6 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             border: 1px solid #e5e7eb;
         }
-        /* Estilo base para el contenedor del diagrama */
         .mermaid { 
             background-color: white; 
             border-radius: 8px; 
@@ -27,90 +26,94 @@
     <div class="max-w-6xl mx-auto">
         <div class="mb-8 text-center">
             <h1 class="text-3xl font-bold text-gray-800 mb-2">
-                <span class="text-[#714B67]">Odoo</span> VoIP Integration Flow
+                <span class="text-[#714B67]">Odoo</span> Integración Voz (Fase 1)
             </h1>
-            <p class="text-gray-600">Lógica de Decisión para Procesamiento de Webhooks</p>
+            <p class="text-gray-600">Registro de Horas Hombre mediante Comandos de Voz (Fonax)</p>
         </div>
 
         <div class="odoo-card bg-white rounded-xl p-6 mb-8 overflow-x-auto">
-            <h2 class="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Diagrama de Flujo Lógico</h2>
+            <h2 class="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Lógica de Procesamiento de Logs</h2>
             
-            <!-- Usamos DIV en lugar de PRE y aseguramos que el contenido no tenga espacios extraños -->
             <div class="mermaid">
 flowchart TD
-    %% Nodos de Inicio
-    Start((Inicio)) --> Webhook["📡 Recibir Webhook POST<br/>/webhook/voip_callback"]
+    %% Entradas de Datos
+    FonaxPush["📡 Webhook Fonax<br/>Push Inmediato"] --> LogTable
+    FonaxPoll["⏰ Cron Odoo<br/>Poll de Auditoría (Backup)"] --> LogTable
     
-    %% Validación de Seguridad
-    Webhook --> Auth{"🔐 ¿Token Válido?"}
-    Auth -- No --> Deny["⛔ Retornar 403 Forbidden"] --> EndErr((Fin Error))
-    Auth -- Sí --> Ack["✅ Retornar 200 OK<br/>(Liberar Conexión)"]
-    
-    %% Proceso Asíncrono
-    Ack --> Queue["⚙️ Crear Queue Job / Cron"]
-    Queue --> Wait["⏳ Espera Técnica 30s<br/>Buffer de Procesamiento"]
-    
-    %% Consulta a API Externa
-    Wait --> Fetch["📥 GET /api/transcripts<br/>Consultar a Proveedor Voip"]
-    Fetch --> CheckData{"¿Datos Recibidos?"}
-    
-    CheckData -- Error/Vacío --> Retry["🔄 Reagendar Job<br/>(Reintento Automático)"] --> EndRetry((Fin Reintento))
-    CheckData -- OK --> Search["🔍 Buscar en res.partner<br/>por número de teléfono"]
-    
-    %% Lógica de Negocio Odoo
-    Search --> Found{"¿Partner Existe?"}
-    
-    Found -- Sí --> SetPartner["👤 Seleccionar Partner"]
-    Found -- No --> CreateLead["✨ Crear CRM Lead<br/>(Nuevo Prospecto)"]
-    
-    %% Publicación Final
-    SetPartner --> Format["📝 Formatear HTML<br/>(Negritas, Detalles)"]
-    CreateLead --> Format
-    
-    Format --> Post["💬 message_post<br/>Publicar en Chatter"]
-    Post --> End((Fin Éxito))
+    %% Almacenamiento Intermedio (Auditoría)
+    subgraph AuditLayer [Capa de Auditoría y Seguridad]
+        LogTable["🗃️ Modelo: fonax.call.log<br/>Guarda: Ext, Emp, Orden, Texto, Hora"]
+    end
 
-    %% Estilos Odoo
+    LogTable --> Process{"⚙️ Procesar Log<br/>(Estado: Nuevo)"}
+    
+    %% Identificación de Recursos
+    Process --> FindEmp{"🔍 ¿Empleado Existe?<br/>(Match por Voz/Extensión)"}
+    FindEmp -- No --> ErrorEmp["⚠️ Marcar Log: Error<br/>'Empleado Desconocido'"]
+    
+    FindEmp -- Sí --> FindSO{"🔍 ¿Orden S005 Existe?<br/>(Buscar sale.order)"}
+    FindSO -- No --> ErrorSO["⚠️ Marcar Log: Error<br/>'Orden no encontrada'"]
+    
+    %% Lógica de Negocio (Timer)
+    FindSO -- Sí --> IdentifyAction{"🧠 Análisis Semántico<br/>¿Inicio o Fin?"}
+    
+    %% Camino: INICIO DE TRABAJO
+    IdentifyAction -- "Voy a trabajar..." --> CheckOpen["¿Tiene Timer Abierto?"]
+    CheckOpen -- Sí --> ClosePrev["⏹️ Cierra Timer Anterior<br/>(Seguridad)"] --> CreateNew
+    CheckOpen -- No --> CreateNew
+    
+    CreateNew["▶️ <b>Crear Timesheet</b><br/>User: Pedro<br/>Project: S005<br/>Start: Now"] --> MarkDone["✅ Log: Procesado"]
+    
+    %% Camino: FIN DE TRABAJO / REPORTE
+    IdentifyAction -- "Terminé..." --> FindOpenTimer["🔍 Buscar Timesheet<br/>Abierto de Pedro en S005"]
+    
+    FindOpenTimer -- Encontrado --> CloseTimer["⏹️ <b>Cerrar Timesheet</b><br/>Calc Duración: Now - Start<br/>Desc: 'Cambio de Caucho'"]
+    FindOpenTimer -- No Encontrado --> LogLoose["📝 Registrar Entrada Suelta<br/>(Sin duración calculada)"]
+    
+    CloseTimer --> MarkDone
+    LogLoose --> MarkDone
+
+    %% Estilos Visuales
     classDef purple fill:#714B67,color:white,stroke:#714B67,stroke-width:2px;
     classDef teal fill:#00A09D,color:white,stroke:#00A09D,stroke-width:2px;
-    classDef gray fill:#f3f4f6,stroke:#9ca3af,color:#1f2937,stroke-width:2px,stroke-dasharray: 5 5;
-    classDef warning fill:#fff7ed,stroke:#f97316,color:#9a3412,stroke-width:2px;
+    classDef red fill:#fee2e2,stroke:#ef4444,color:#991b1b,stroke-width:2px;
+    classDef gray fill:#f3f4f6,stroke:#9ca3af,color:#1f2937,stroke-width:2px;
 
-    class Webhook,Queue,Fetch,Search purple
-    class Post,SetPartner,CreateLead,Format teal
-    class Start,EndErr,EndRetry,End,Ack gray
-    class Auth,Found,CheckData warning
+    class FonaxPush,FonaxPoll,LogTable purple
+    class CreateNew,CloseTimer,ClosePrev,LogLoose teal
+    class ErrorEmp,ErrorSO red
+    class Process,FindEmp,FindSO,IdentifyAction,CheckOpen,FindOpenTimer,MarkDone gray
             </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div class="odoo-card bg-white rounded-xl p-6">
-                <h3 class="font-bold text-[#714B67] mb-3">🟣 Capa de Infraestructura</h3>
-                <ul class="space-y-3 text-sm text-gray-600">
-                    <li class="flex items-start"><span class="mr-2">📡</span><div><strong>Webhook & Auth:</strong> Filtra peticiones maliciosas antes de procesar nada.</div></li>
-                    <li class="flex items-start"><span class="mr-2">⏳</span><div><strong>Buffer de Espera:</strong> Crucial para dar tiempo a la IA de VoIP a generar el texto.</div></li>
-                    <li class="flex items-start"><span class="mr-2">🔄</span><div><strong>Reintentos:</strong> Si la API falla, el sistema se autorrepara reagendando el trabajo.</div></li>
+                <h3 class="font-bold text-[#714B67] mb-3">🛠️ Modelo de Auditoría (fonax.call.log)</h3>
+                <p class="text-sm text-gray-600 mb-2">Este modelo es vital para cumplir con el requisito de "no dejar transacciones perdidas".</p>
+                <ul class="space-y-2 text-sm text-gray-600 list-disc list-inside">
+                    <li><b>Campos:</b> Raw JSON, Estado (Nuevo/Hecho/Error), Mensaje de Error.</li>
+                    <li><b>Función:</b> Permite al gerente corregir manualmente si Pedro dijo "S0005" y el sistema no lo entendió, re-procesando el log con un clic.</li>
                 </ul>
             </div>
             <div class="odoo-card bg-white rounded-xl p-6">
-                <h3 class="font-bold text-[#00A09D] mb-3">🟢 Capa de Negocio</h3>
-                <ul class="space-y-3 text-sm text-gray-600">
-                    <li class="flex items-start"><span class="mr-2">👤</span><div><strong>Detección Inteligente:</strong> Asocia la llamada al cliente existente automáticamente.</div></li>
-                    <li class="flex items-start"><span class="mr-2">✨</span><div><strong>Generación de Leads:</strong> Convierte llamadas desconocidas en oportunidades de venta.</div></li>
-                    <li class="flex items-start"><span class="mr-2">📝</span><div><strong>Formato Rico:</strong> Usa HTML para que la transcripción sea legible y limpia.</div></li>
+                <h3 class="font-bold text-[#00A09D] mb-3">⏱️ Cálculo de Horas (account.analytic.line)</h3>
+                <p class="text-sm text-gray-600 mb-2">Lógica de estado para calcular la duración exacta:</p>
+                <ul class="space-y-2 text-sm text-gray-600 list-disc list-inside">
+                    <li><b>Inicio:</b> Crea registro con <code>date_start = Now</code> y <code>unit_amount = 0</code>.</li>
+                    <li><b>Fin:</b> Busca el último registro en 0, calcula <code>Now - date_start</code> y actualiza el campo <code>unit_amount</code>.</li>
                 </ul>
             </div>
         </div>
     </div>
 
-    <!-- Script Corregido con extensión .mjs -->
+    <!-- Script de Mermaid -->
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         
         mermaid.initialize({ 
-            startOnLoad: false, // Controlamos la carga manualmente
+            startOnLoad: false,
             theme: 'base',
-            flowchart: { curve: 'monotoneY' },
+            flowchart: { curve: 'basis' },
             themeVariables: {
                 primaryColor: '#714B67',
                 primaryTextColor: '#fff',
@@ -121,10 +124,7 @@ flowchart TD
             }
         });
 
-        // Forzamos el renderizado asíncrono
-        await mermaid.run({
-            querySelector: '.mermaid',
-        });
+        await mermaid.run({ querySelector: '.mermaid' });
     </script>
 </body>
 </html>
